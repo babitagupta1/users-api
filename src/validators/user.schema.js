@@ -1,4 +1,4 @@
-import { email, lowercase, object, password, pastDate, phone, string, trim } from './rule.js';
+import { email, lowercase, object, password, pastDate, phone, string, trim } from './rules.js';
 
 const addressShape = {
   street:     { required: true,  check: string({ max: 120 }) },
