@@ -1,3 +1,4 @@
+
 import { conflict, notFound, unauthorized } from '../utils/http-error.js';
 import { hashPassword, verifyPassword } from '../utils/password.js';
 import { paginate, parsePagination, sortItems } from '../utils/query.js';
@@ -12,17 +13,18 @@ const withDefaults = (profile) => ({
   dateOfBirth: profile.dateOfBirth ?? null,
   address: profile.address ?? null,
   githubId: profile.githubId ?? null,
+  avatar: profile.avatar ?? null,
 });
 
 // The ONLY way a user leaves this service: without the password hash.
 export const toPublicUser = ({ passwordHash, ...user }) => user;
 
-// Verifying against a dummy hash when the email doesn't exist makes "wrong email" and
-// "wrong password" take the same time, so attackers can't discover which emails are registered.
+// Verifying against a dummy hash when the email doesn't exist makes
+// "wrong email" and "wrong password" take the same time.
 const DUMMY_HASH = await hashPassword('dummy-password-for-timing');
 
 export class UsersService {
-  // `hash` / `verify` are injectable so tests can use fast fakes instead of real scrypt.
+  // `hash` / `verify` are injectable so tests can use fast fakes.
   constructor(usersRepository, { hash = hashPassword, verify = verifyPassword } = {}) {
     this.users = usersRepository;
     this.hash = hash;
@@ -35,87 +37,159 @@ export class UsersService {
 
     if (typeof query.q === 'string' && query.q.trim()) {
       const needle = query.q.trim().toLowerCase();
+
       items = items.filter((u) =>
-        `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(needle),
+        `${u.firstName} ${u.lastName} ${u.email}`
+          .toLowerCase()
+          .includes(needle),
       );
     }
+
     if (typeof query.role === 'string') {
       items = items.filter((u) => u.role === query.role);
     }
 
     items = sortItems(items, query.sort ?? 'lastName', SORTABLE_FIELDS);
+
     const page = paginate(items, parsePagination(query));
+
     return { ...page, data: page.data.map(toPublicUser) };
   }
 
   async getById(id) {
     const user = await this.users.findById(id);
-    if (!user) throw notFound(`User ${id} does not exist`);
+
+    if (!user) {
+      throw notFound(`User ${id} does not exist`);
+    }
+
     return toPublicUser(user);
   }
 
-  // `role` is a second argument, NOT part of the request body — only trusted code (seed, admin tools) sets it.
+  // Create a new user.
   async create(data, { role = 'customer' } = {}) {
     await this.#assertEmailAvailable(data.email);
+
     const { password, ...profile } = data;
     const passwordHash = await this.hash(password);
-    const user = await this.users.create({ ...withDefaults(profile), role, passwordHash });
+
+    const user = await this.users.create({
+      ...withDefaults(profile),
+      role,
+      passwordHash,
+    });
+
     return toPublicUser(user);
   }
 
+  // Update existing user details.
   async update(id, changes) {
     await this.getById(id);
-    if (changes.email) await this.#assertEmailAvailable(changes.email, id);
+
+    if (changes.email) {
+      await this.#assertEmailAvailable(changes.email, id);
+    }
+
     return toPublicUser(await this.users.update(id, changes));
   }
 
+  // Delete a user.
   async remove(id) {
     await this.getById(id);
     await this.users.delete(id);
   }
 
-  // ── New in 2.3 ────────────────────────────────────────────────
+  // ── New in Assignment 2.4 ──────────────────────────────
+  // Update a user's avatar.
+  async setAvatar(id, avatar) {
+    await this.getById(id);
 
-  // Returns the public user if email + password match, otherwise throws ONE generic 401.
+    return toPublicUser(
+      await this.users.update(id, { avatar }),
+    );
+  }
+
+  // ── Existing Assignment 2.3 functionality ──────────────
+
+  // Verify email and password.
   async verifyCredentials(email, password) {
     const user = await this.users.findByEmail(email);
-    const ok = await this.verify(password, user?.passwordHash ?? DUMMY_HASH);
-    if (!user || !user.passwordHash || !ok) throw unauthorized('Invalid email or password');
+
+    const ok = await this.verify(
+      password,
+      user?.passwordHash ?? DUMMY_HASH,
+    );
+
+    if (!user || !user.passwordHash || !ok) {
+      throw unauthorized('Invalid email or password');
+    }
+
     return toPublicUser(user);
   }
 
+  // Change a user's password.
   async changePassword(id, currentPassword, newPassword) {
     const user = await this.users.findById(id);
-    if (!user?.passwordHash || !(await this.verify(currentPassword, user.passwordHash))) {
+
+    if (
+      !user?.passwordHash ||
+      !(await this.verify(currentPassword, user.passwordHash))
+    ) {
       throw unauthorized('Current password is incorrect');
     }
-    await this.users.update(id, { passwordHash: await this.hash(newPassword) });
+
+    await this.users.update(id, {
+      passwordHash: await this.hash(newPassword),
+    });
   }
 
+  // Change a user's role.
   async changeRole(id, role) {
     await this.getById(id);
-    return toPublicUser(await this.users.update(id, { role }));
+
+    return toPublicUser(
+      await this.users.update(id, { role }),
+    );
   }
 
-  // "Login with GitHub": find the user by GitHub id, else link by verified email, else create.
+  // Login with GitHub or link an existing account.
   async findOrCreateFromGithub({ githubId, email, name, login }) {
     const byGithub = await this.users.findByGithubId(githubId);
-    if (byGithub) return toPublicUser(byGithub);
+
+    if (byGithub) {
+      return toPublicUser(byGithub);
+    }
 
     const byEmail = await this.users.findByEmail(email);
-    if (byEmail) return toPublicUser(await this.users.update(byEmail.id, { githubId }));
+
+    if (byEmail) {
+      return toPublicUser(
+        await this.users.update(byEmail.id, { githubId }),
+      );
+    }
 
     const [firstName, ...rest] = (name ?? login).trim().split(/\s+/);
+
     const user = await this.users.create({
-      ...withDefaults({ firstName, lastName: rest.join(' '), email: email.toLowerCase(), githubId }),
+      ...withDefaults({
+        firstName,
+        lastName: rest.join(' '),
+        email: email.toLowerCase(),
+        githubId,
+      }),
       role: 'customer',
-      passwordHash: null, // OAuth-only account: cannot log in with a password
+      passwordHash: null,
     });
+
     return toPublicUser(user);
   }
 
+  // Check whether an email is already registered.
   async #assertEmailAvailable(email, exceptId) {
     const existing = await this.users.findByEmail(email);
-    if (existing && existing.id !== exceptId) throw conflict(`Email ${email} is already registered`);
+
+    if (existing && existing.id !== exceptId) {
+      throw conflict(`Email ${email} is already registered`);
+    }
   }
 }
