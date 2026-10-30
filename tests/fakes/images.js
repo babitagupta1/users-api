@@ -9,4 +9,4 @@ export const makeImage = ({ width = 800, height = 600, format = 'png', exif } = 
 
 export const SVG_WITH_SCRIPT = Buffer.from(
   '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><script>alert(document.cookie)</script><rect width="10" height="10"/></svg>',
-);
+);gity 
