@@ -19,7 +19,10 @@ export const config = Object.freeze({
   isTest: process.env.NODE_ENV === 'test',
   port: toInt(process.env.PORT, 3000),
   host: process.env.HOST ?? '127.0.0.1',
-  bodyLimit: process.env.BODY_LIMIT ?? '100kb',
+    bodyLimit: process.env.BODY_LIMIT ?? '100kb',
+
+  databaseUrl: process.env.DATABASE_URL,
+  redisUrl: process.env.REDIS_URL ?? 'redis://127.0.0.1:6379',
 
   auth: {
     jwtSecret,

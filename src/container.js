@@ -30,8 +30,10 @@ function createStorage(uploads) {
 
 // Composition root: creates and connects the application dependencies.
 export function createContainer(overrides = {}) {
+  const pool = overrides.pool;
+
   const usersRepository =
-    overrides.usersRepository ?? new UsersRepository();
+    overrides.usersRepository ?? new UsersRepository(pool);
 
   const refreshTokensRepository =
     overrides.refreshTokensRepository ?? new RefreshTokensRepository();
@@ -55,7 +57,7 @@ export function createContainer(overrides = {}) {
     { fetch: overrides.fetch },
   );
 
-  // ── Assignment 2.4: Avatar and image upload ──
+  // Assignment 2.4: Avatar and image upload
   const uploads = { ...config.uploads, ...overrides.uploads };
 
   const storage =
@@ -78,6 +80,7 @@ export function createContainer(overrides = {}) {
   });
 
   return {
+    pool,
     usersRepository,
     refreshTokensRepository,
     usersService,
